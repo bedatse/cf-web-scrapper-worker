@@ -3,6 +3,7 @@ import type { BrowserWorker, ActiveSession } from "@cloudflare/puppeteer";
 
 const DEFAULT_AWAIT_NETWORK_IDLE = 1000;
 const DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT = 15000;
+const DEFAULT_LANG = "en";
 
 export interface Env {
 	API_TOKEN: string;
@@ -15,9 +16,9 @@ export interface Env {
 	Storage key generation
 
 	Generate a unique storage key for the given domain and URL.
-	Key format: ${sha256hex(domain)}/${sha256hex(url)}
+	Key format: ${sha1hex(domain)}/${sha256hex(url)}
 
-	Hash is generated using SHA-256 and converted to a hex string.
+	Hash is generated using SHA-1 and SHA-256 and converted to a hex string.
 
 	Parameters:
 		domain: string - the domain name
@@ -26,7 +27,7 @@ export interface Env {
 async function generateStorageKey(domain: string, url: string): Promise<string> {
 	// Generate hashes for domain and URL
 	const domainHash = await crypto.subtle.digest(
-		'SHA-256',
+		'SHA-1',
 		new TextEncoder().encode(domain)
 	);
 	const urlHash = await crypto.subtle.digest(
@@ -97,8 +98,9 @@ export default {
 		const url = new URL(request.url);
 		const reqUrl = url.searchParams.get("url");
 		const awaitNetworkIdle = Number(url.searchParams.get("idle")) || DEFAULT_AWAIT_NETWORK_IDLE;
+		const lang = url.searchParams.get("lang") || DEFAULT_LANG;
 
-		console.log({ "Message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle });
+		console.log({ "Message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle, "Lang": lang });
 
 		// Check if the URL is provided
 		if (!reqUrl) {
@@ -184,13 +186,13 @@ export default {
 		// Save the page metadata to D1 using UPSERT
 		try {
 			const d1Response = await env.PAGE_METADATA.prepare(`
-				INSERT INTO PageMetadata (url, r2_path, created_at, updated_at) 
-				VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+				INSERT INTO PageMetadata (url, r2_path, lang, page_crawled_at) 
+				VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 				ON CONFLICT(url) DO UPDATE SET 
 					r2_path = excluded.r2_path,
-					updated_at = CURRENT_TIMESTAMP
+					page_crawled_at = CURRENT_TIMESTAMP
 			`)
-				.bind(targetUrlString, r2Key)
+				.bind(targetUrlString, r2Key, lang)
 				.run();
 			console.log({
 				"Message": "Saved page metadata to D1",
