@@ -5,6 +5,7 @@ const DEFAULT_AWAIT_NETWORK_IDLE = 1000;
 const DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT = 15000;
 
 export interface Env {
+	API_TOKEN: string;
 	SCRAPPER_BROWSER: Fetcher;
 	PAGE_METADATA: D1Database;
 	RAW_HTML_BUCKET: R2Bucket;
@@ -56,6 +57,11 @@ async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
+		const apiKey = request.headers.get("Authorization")?.replace("Bearer ", "");
+		if (apiKey !== env.API_TOKEN) {
+			return new Response("Unauthorized", { status: 401 });
+		}
+
 		const url = new URL(request.url);
 		const reqUrl = url.searchParams.get("url");
 		const awaitNetworkIdle = Number(url.searchParams.get("idle")) || DEFAULT_AWAIT_NETWORK_IDLE;
