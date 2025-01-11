@@ -84,8 +84,9 @@ export default {
 			try {
 				console.log({ "Message": "Connecting to session", "SessionId": sessionId });
 				browser = await puppeteer.connect(env.SCRAPPER_BROWSER, sessionId);
-			} catch (e) {
-				console.log({ "Message": "Failed to connect to session", "SessionId": sessionId, "Error": e });
+			} catch (e: any) {
+				console.log({ "Message": "Failed to connect to session", "SessionId": sessionId, "Error": e.message });
+				console.error(e);
 			}
 		}
 
@@ -94,8 +95,9 @@ export default {
 				console.log({ "Message": "Launching new browser" });
 				browser = await puppeteer.launch(env.SCRAPPER_BROWSER);
 				sessionId = browser.sessionId();
-			} catch (e) {
-				console.log({ "Message": "Failed to launch browser", "Error": e });
+			} catch (e: any) {
+				console.log({ "Message": "Failed to launch browser", "Error": e.message });
+				console.error(e);
 				return new Response("Failed to launch browser", { status: 500 });
 			}
 		}
@@ -134,8 +136,8 @@ export default {
 				"R2SaveSize": r2Response?.size,
 				"R2SaveResult": r2Response?.uploaded,
 			});
-		} catch (e) {
-			console.log({ "Message": "Failed to save HTML to R2", "Error": e });
+		} catch (e: any) {
+			console.log({ "Message": "Failed to save HTML to R2", "Error": e.message });
 			console.error(e);
 			return new Response("Failed to save HTML", { status: 500 });
 		}
@@ -156,8 +158,8 @@ export default {
 				"TargetUrl": targetUrlString,
 				"D1SaveResult": d1Response?.success,
 			});
-		} catch (e) {
-			console.log({ "Message": "Failed to save page metadata to D1", "Error": e });
+		} catch (e: any) {
+			console.log({ "Message": "Failed to save page metadata to D1", "Error": e.message });
 			console.error(e);
 			return new Response("Failed to save page metadata", { status: 500 });
 		}
