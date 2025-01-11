@@ -136,6 +136,7 @@ export default {
 			});
 		} catch (e) {
 			console.log({ "Message": "Failed to save HTML to R2", "Error": e });
+			console.error(e);
 			return new Response("Failed to save HTML", { status: 500 });
 		}
 
@@ -157,6 +158,7 @@ export default {
 			});
 		} catch (e) {
 			console.log({ "Message": "Failed to save page metadata to D1", "Error": e });
+			console.error(e);
 			return new Response("Failed to save page metadata", { status: 500 });
 		}
 				
