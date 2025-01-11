@@ -85,7 +85,7 @@ export default {
 			request: Request - the request object
 			env: Env - the environment variables
 	*/
-	async fetch(request: Request, env: Env): Promise<Response> {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		// Check if the request is authorized
 		const apiKey = request.headers.get("Authorization")?.replace("Bearer ", "");
 		if (apiKey !== env.API_TOKEN) {
@@ -206,4 +206,4 @@ export default {
 		// Return a success response
 		return new Response(`Scrapped: ${title} - ${targetUrlString}`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 	},
-};
+} satisfies ExportedHandler<Env>;
