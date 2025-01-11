@@ -1,65 +1,159 @@
-import { DurableObject } from "cloudflare:workers";
+import puppeteer from "@cloudflare/puppeteer";
+import type { BrowserWorker, ActiveSession } from "@cloudflare/puppeteer";
 
-/**
- * Welcome to Cloudflare Workers! This is your first Durable Objects application.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your Durable Object in action
- * - Run `npm run deploy` to publish your application
- *
- * Bind resources to your worker in `wrangler.toml`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/durable-objects
- */
+const DEFAULT_AWAIT_NETWORK_IDLE = 1000;
+const DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT = 15000;
 
-/** A Durable Object's behavior is defined in an exported Javascript class */
-export class MyDurableObject extends DurableObject {
-	/**
-	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
-	 * 	`DurableObjectStub::get` for a given identifier (no-op constructors can be omitted)
-	 *
-	 * @param ctx - The interface for interacting with Durable Object state
-	 * @param env - The interface to reference bindings declared in wrangler.toml
-	 */
-	constructor(ctx: DurableObjectState, env: Env) {
-		super(ctx, env);
+export interface Env {
+	SCRAPPER_BROWSER: Fetcher;
+	PAGE_METADATA: D1Database;
+	RAW_HTML_BUCKET: R2Bucket;
+}
+
+async function generateStorageKey(domain: string, url: string): Promise<string> {
+	// Generate hashes for domain and URL
+	const domainHash = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(domain)
+	);
+	const urlHash = await crypto.subtle.digest(
+		'SHA-256', 
+		new TextEncoder().encode(url)
+	);
+
+	// Convert hash buffers to hex strings
+	const domainHashHex = Array.from(new Uint8Array(domainHash))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('');
+	const urlHashHex = Array.from(new Uint8Array(urlHash))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('');
+
+	return `${domainHashHex}/${urlHashHex}`;
+}
+
+async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
+	const sessions: ActiveSession[] = await puppeteer.sessions(endpoint);
+	console.log({ "Message": "Current active sessions", "ActiveSessions": sessions.map((v) => v.sessionId) });
+	
+	const sessionsIds: string[] = sessions
+		.filter((v) => {
+			return !v.connectionId; // filter out sessions that are still connected
+		})
+		.map((v) => {
+			return v.sessionId;
+		});
+
+	if (sessionsIds.length === 0) {
+		console.log({ "Message": "No available sessions", "SessionsIds": sessionsIds });
+		return "";
 	}
 
-	/**
-	 * The Durable Object exposes an RPC method sayHello which will be invoked when when a Durable
-	 *  Object instance receives a request from a Worker via the same method invocation on the stub
-	 *
-	 * @param name - The name provided to a Durable Object instance from a Worker
-	 * @returns The greeting to be sent back to the Worker
-	 */
-	async sayHello(name: string): Promise<string> {
-		return `Hello, ${name}!`;
-	}
+	const sessionId = sessionsIds[Math.floor(Math.random() * sessionsIds.length)];
+
+	return sessionId!;
 }
 
 export default {
-	/**
-	 * This is the standard fetch handler for a Cloudflare Worker
-	 *
-	 * @param request - The request submitted to the Worker from the client
-	 * @param env - The interface to reference bindings declared in wrangler.toml
-	 * @param ctx - The execution context of the Worker
-	 * @returns The response to be sent back to the client
-	 */
-	async fetch(request, env, ctx): Promise<Response> {
-		// We will create a `DurableObjectId` using the pathname from the Worker request
-		// This id refers to a unique instance of our 'MyDurableObject' class above
-		let id: DurableObjectId = env.MY_DURABLE_OBJECT.idFromName(new URL(request.url).pathname);
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		const reqUrl = url.searchParams.get("url");
+		const awaitNetworkIdle = Number(url.searchParams.get("idle")) || DEFAULT_AWAIT_NETWORK_IDLE;
 
-		// This stub creates a communication channel with the Durable Object instance
-		// The Durable Object constructor will be invoked upon the first call for a given id
-		let stub = env.MY_DURABLE_OBJECT.get(id);
+		console.log({ "Message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle });
 
-		// We call the `sayHello()` RPC method on the stub to invoke the method on the remote
-		// Durable Object instance
-		let greeting = await stub.sayHello("world");
+		if (!reqUrl) {
+			console.log({ "Message": "URL parameter is missing", "URL": reqUrl });
+			return new Response("URL is required", { status: 400 });
+		} 
 
-		return new Response(greeting);
+		const targetUrl = new URL(reqUrl);
+		const domain = targetUrl.hostname;
+		const targetUrlString = targetUrl.toString();
+
+		let sessionId = await getRandomSession(env.SCRAPPER_BROWSER);
+		let browser;
+
+		if (sessionId !== "") {
+			try {
+				console.log({ "Message": "Connecting to session", "SessionId": sessionId });
+				browser = await puppeteer.connect(env.SCRAPPER_BROWSER, sessionId);
+			} catch (e) {
+				console.log({ "Message": "Failed to connect to session", "SessionId": sessionId, "Error": e });
+			}
+		}
+
+		if (!browser) {
+			try {
+				console.log({ "Message": "Launching new browser" });
+				browser = await puppeteer.launch(env.SCRAPPER_BROWSER);
+				sessionId = browser.sessionId();
+			} catch (e) {
+				console.log({ "Message": "Failed to launch browser", "Error": e });
+				return new Response("Failed to launch browser", { status: 500 });
+			}
+		}
+
+		console.log({ "Message": "Loading page", "URL": targetUrlString });
+
+		const page = await browser.newPage();
+		const response = await page.goto(targetUrlString);
+
+		if (response?.status() !== 200) {
+			console.log({ "Message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
+			return new Response("Failed to load page", { status: response?.status() || 500 });
+		}
+
+		console.log({ "Message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
+
+		await page.waitForNetworkIdle({ 
+			idleTime: awaitNetworkIdle, 
+			timeout: DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT 
+		});
+
+		const html = await page.content();
+		const title = await page.title();
+
+		await browser.disconnect()
+
+		const r2Key = await generateStorageKey(domain, targetUrlString);
+		try {
+			// Save the HTML to R2
+			const r2Response = await env.RAW_HTML_BUCKET.put(r2Key, html);
+			console.log({
+				"Message": "Saved HTML to R2",
+				"TargetUrl": targetUrlString,
+				"Size": html.length,
+				"R2Key": r2Key,
+				"R2SaveSize": r2Response?.size,
+				"R2SaveResult": r2Response?.uploaded,
+			});
+		} catch (e) {
+			console.log({ "Message": "Failed to save HTML to R2", "Error": e });
+			return new Response("Failed to save HTML", { status: 500 });
+		}
+
+		try {
+			// Save the page metadata to D1 using UPSERT
+			const d1Response = await env.PAGE_METADATA.prepare(`
+				INSERT INTO PageMetadata (url, r2_path, created_at, updated_at) 
+				VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+				ON CONFLICT(url) DO UPDATE SET 
+					r2_path = excluded.r2_path,
+					updated_at = CURRENT_TIMESTAMP
+			`)
+				.bind(targetUrlString, r2Key)
+				.run();
+			console.log({
+				"Message": "Saved page metadata to D1",
+				"TargetUrl": targetUrlString,
+				"D1SaveResult": d1Response?.success,
+			});
+		} catch (e) {
+			console.log({ "Message": "Failed to save page metadata to D1", "Error": e });
+			return new Response("Failed to save page metadata", { status: 500 });
+		}
+				
+		return new Response(`Scrapped: ${title} - ${targetUrlString}`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 	},
-} satisfies ExportedHandler<Env>;
+};
