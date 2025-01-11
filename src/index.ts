@@ -11,6 +11,18 @@ export interface Env {
 	RAW_HTML_BUCKET: R2Bucket;
 }
 
+/*
+	Storage key generation
+
+	Generate a unique storage key for the given domain and URL.
+	Key format: ${sha256hex(domain)}/${sha256hex(url)}
+
+	Hash is generated using SHA-256 and converted to a hex string.
+
+	Parameters:
+		domain: string - the domain name
+		url: string - the URL
+*/
 async function generateStorageKey(domain: string, url: string): Promise<string> {
 	// Generate hashes for domain and URL
 	const domainHash = await crypto.subtle.digest(
@@ -33,6 +45,14 @@ async function generateStorageKey(domain: string, url: string): Promise<string> 
 	return `${domainHashHex}/${urlHashHex}`;
 }
 
+/*
+	Session selection
+
+	Get a random active sessions without a worker connection.
+
+	Parameters:
+		endpoint: BrowserWorker - the browser worker endpoint
+*/
 async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
 	const sessions: ActiveSession[] = await puppeteer.sessions(endpoint);
 	console.log({ "Message": "Current active sessions", "ActiveSessions": sessions.map((v) => v.sessionId) });
@@ -56,18 +76,31 @@ async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
 }
 
 export default {
+	/*
+		Main handler
+
+		Scrape the given URL, save the HTML to R2 and save the page metadata to D1.
+
+		Parameters:
+			request: Request - the request object
+			env: Env - the environment variables
+	*/
 	async fetch(request: Request, env: Env): Promise<Response> {
+		// Check if the request is authorized
 		const apiKey = request.headers.get("Authorization")?.replace("Bearer ", "");
 		if (apiKey !== env.API_TOKEN) {
+			console.log({ "Message": "Unauthorized request", "APIKey": apiKey, "ExpectedAPIKey": env.API_TOKEN });
 			return new Response("Unauthorized", { status: 401 });
 		}
 
+		// Get the URL and await network idle time from the request
 		const url = new URL(request.url);
 		const reqUrl = url.searchParams.get("url");
 		const awaitNetworkIdle = Number(url.searchParams.get("idle")) || DEFAULT_AWAIT_NETWORK_IDLE;
 
 		console.log({ "Message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle });
 
+		// Check if the URL is provided
 		if (!reqUrl) {
 			console.log({ "Message": "URL parameter is missing", "URL": reqUrl });
 			return new Response("URL is required", { status: 400 });
@@ -76,7 +109,9 @@ export default {
 		const targetUrl = new URL(reqUrl);
 		const domain = targetUrl.hostname;
 		const targetUrlString = targetUrl.toString();
+		const r2Key = await generateStorageKey(domain, targetUrlString);
 
+		// Get a random active session without a worker connection, and connect to it
 		let sessionId = await getRandomSession(env.SCRAPPER_BROWSER);
 		let browser;
 
@@ -90,6 +125,7 @@ export default {
 			}
 		}
 
+		// If no session is available, launch a new browser
 		if (!browser) {
 			try {
 				console.log({ "Message": "Launching new browser" });
@@ -104,14 +140,17 @@ export default {
 
 		console.log({ "Message": "Loading page", "URL": targetUrlString });
 
+		// Create a new page and navigate to the target URL
 		const page = await browser.newPage();
 		const response = await page.goto(targetUrlString);
 
+		// Check if the page loaded successfully
 		if (response?.status() !== 200) {
 			console.log({ "Message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
 			return new Response("Failed to load page", { status: response?.status() || 500 });
 		}
 
+		// Wait for the network to be idle for some website loading information with XHR requests
 		console.log({ "Message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
 
 		await page.waitForNetworkIdle({ 
@@ -122,11 +161,11 @@ export default {
 		const html = await page.content();
 		const title = await page.title();
 
+		// Disconnect from the browser
 		await browser.disconnect()
 
-		const r2Key = await generateStorageKey(domain, targetUrlString);
+		// Save the HTML to R2
 		try {
-			// Save the HTML to R2
 			const r2Response = await env.RAW_HTML_BUCKET.put(r2Key, html);
 			console.log({
 				"Message": "Saved HTML to R2",
@@ -142,8 +181,8 @@ export default {
 			return new Response("Failed to save HTML", { status: 500 });
 		}
 
+		// Save the page metadata to D1 using UPSERT
 		try {
-			// Save the page metadata to D1 using UPSERT
 			const d1Response = await env.PAGE_METADATA.prepare(`
 				INSERT INTO PageMetadata (url, r2_path, created_at, updated_at) 
 				VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -163,7 +202,8 @@ export default {
 			console.error(e);
 			return new Response("Failed to save page metadata", { status: 500 });
 		}
-				
+		
+		// Return a success response
 		return new Response(`Scrapped: ${title} - ${targetUrlString}`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 	},
 };
