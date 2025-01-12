@@ -4,23 +4,21 @@ main = "src/index.ts"
 compatibility_date = "2025-01-09"
 compatibility_flags = ["nodejs_compat"]
 
-# Workers Logs
-# Docs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/
-# Configuration: https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs
 observability = { enabled = true }
 
-# Bind a headless browser instance running on Cloudflare's global network.
-# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#browser-rendering
 browser = { binding = "SCRAPPER_BROWSER" }
 
-# Bind a D1 database. D1 is Cloudflare’s native serverless SQL database.
-# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#d1-databases
 d1_databases = [
-	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata", database_id = "9deb74a3-287b-4d8b-a020-6662cfbd9a01", preview_database_id = "56f92781-5084-4333-a331-9cfdfaa0710f" }
+	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata-dev", database_id = "56f92781-5084-4333-a331-9cfdfaa0710f" }
+]
+r2_buckets = [
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-dev" }
 ]
 
-# Bind an R2 Bucket. Use R2 to store arbitrarily large blobs of data, such as files.
-# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#r2-buckets
+[env.production]
+d1_databases = [
+	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata", database_id = "9deb74a3-287b-4d8b-a020-6662cfbd9a01" }
+]
 r2_buckets = [
-	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html", preview_bucket_name = "web-rag-composer-raw-html-dev" }
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html" }
 ]
