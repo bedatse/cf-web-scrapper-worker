@@ -9,13 +9,26 @@ observability = { enabled = true }
 browser = { binding = "SCRAPPER_BROWSER" }
 
 d1_databases = [
+	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata-local", database_id = "4bf05ffe-6461-499b-8e64-a7364d076ab4", preview_database_id = "4bf05ffe-6461-499b-8e64-a7364d076ab4"}
+]
+r2_buckets = [
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-local", preview_bucket_name = "web-rag-composer-raw-html-local" }
+]
+
+
+[env.dev]
+browser = { binding = "SCRAPPER_BROWSER" }
+
+d1_databases = [
 	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata-dev", database_id = "56f92781-5084-4333-a331-9cfdfaa0710f" }
 ]
 r2_buckets = [
 	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-dev" }
 ]
 
-[env.production]
+[env.prod]
+browser = { binding = "SCRAPPER_BROWSER" }
+
 d1_databases = [
 	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata", database_id = "9deb74a3-287b-4d8b-a020-6662cfbd9a01" }
 ]
