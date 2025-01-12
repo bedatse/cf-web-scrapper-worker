@@ -1,16 +1,22 @@
 import puppeteer from "@cloudflare/puppeteer";
 import type { BrowserWorker, ActiveSession } from "@cloudflare/puppeteer";
 
-const DEFAULT_AWAIT_NETWORK_IDLE = 1000;
-const DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT = 15000;
-const DEFAULT_LANG = "en";
-
 export interface Env {
 	API_TOKEN: string;
 	SCRAPPER_BROWSER: Fetcher;
 	PAGE_METADATA: D1Database;
 	RAW_HTML_BUCKET: R2Bucket;
 }
+
+interface RequestBody {
+	url: string;
+	idle: number;
+	lang: string;
+}
+
+const DEFAULT_AWAIT_NETWORK_IDLE = 1000;
+const DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT = 15000;
+const DEFAULT_LANG = "en";
 
 /*
 	Storage key generation
@@ -56,7 +62,7 @@ async function generateStorageKey(domain: string, url: string): Promise<string> 
 */
 async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
 	const sessions: ActiveSession[] = await puppeteer.sessions(endpoint);
-	console.log({ "Message": "Current active sessions", "ActiveSessions": sessions.map((v) => v.sessionId) });
+	console.log({ "message": "Current active sessions", "ActiveSessions": sessions.map((v) => v.sessionId) });
 	
 	const sessionsIds: string[] = sessions
 		.filter((v) => {
@@ -67,7 +73,7 @@ async function getRandomSession(endpoint: BrowserWorker): Promise<string> {
 		});
 
 	if (sessionsIds.length === 0) {
-		console.log({ "Message": "No available sessions", "SessionsIds": sessionsIds });
+		console.log({ "message": "No available sessions", "SessionsIds": sessionsIds });
 		return "";
 	}
 
@@ -90,22 +96,30 @@ export default {
 		// Check if the request is authorized
 		const apiKey = request.headers.get("Authorization")?.replace("Bearer ", "");
 		if (apiKey !== env.API_TOKEN) {
-			console.log({ "Message": "Unauthorized request", "APIKey": apiKey, "ExpectedAPIKey": env.API_TOKEN });
-			return new Response("Unauthorized", { status: 401 });
+			console.log({ "message": "Unauthorized request", "APIKey": apiKey, "ExpectedAPIKey": env.API_TOKEN });
+			return Response.json({"message": "Unauthorized", "status": "failed"}, { status: 401 });
+		}
+
+		// Check if the request is POST
+		if (request.method !== "POST") {
+			console.log({ "message": "Invalid request method", "Method": request.method });
+			return Response.json({"message": "Invalid request method", "status": "failed"}, { status: 405 });
 		}
 
 		// Get the URL and await network idle time from the request
-		const url = new URL(request.url);
-		const reqUrl = url.searchParams.get("url");
-		const awaitNetworkIdle = Number(url.searchParams.get("idle")) || DEFAULT_AWAIT_NETWORK_IDLE;
-		const lang = url.searchParams.get("lang") || DEFAULT_LANG;
 
-		console.log({ "Message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle, "Lang": lang });
+		const url = new URL(request.url);
+		const body: RequestBody = await request.json();
+		const reqUrl = body?.url;
+		const awaitNetworkIdle = body?.idle || DEFAULT_AWAIT_NETWORK_IDLE;
+		const lang = body?.lang || DEFAULT_LANG;
+
+		console.log({ "message": "Request URL", "URL": reqUrl, "AwaitNetworkIdle": awaitNetworkIdle, "Lang": lang });
 
 		// Check if the URL is provided
 		if (!reqUrl) {
-			console.log({ "Message": "URL parameter is missing", "URL": reqUrl });
-			return new Response("URL is required", { status: 400 });
+			console.log({ "message": "URL is missing", "URL": reqUrl });
+			return Response.json({"message": "URL is required", "status": "failed"}, { status: 400 });
 		} 
 
 		const targetUrl = new URL(reqUrl);
@@ -119,10 +133,10 @@ export default {
 
 		if (sessionId !== "") {
 			try {
-				console.log({ "Message": "Connecting to session", "SessionId": sessionId });
+				console.log({ "message": "Connecting to session", "SessionId": sessionId });
 				browser = await puppeteer.connect(env.SCRAPPER_BROWSER, sessionId);
 			} catch (e: any) {
-				console.log({ "Message": "Failed to connect to session", "SessionId": sessionId, "Error": e.message });
+				console.log({ "message": "Failed to connect to session", "SessionId": sessionId, "Error": e.message });
 				console.error(e);
 			}
 		}
@@ -130,17 +144,17 @@ export default {
 		// If no session is available, launch a new browser
 		if (!browser) {
 			try {
-				console.log({ "Message": "Launching new browser" });
+				console.log({ "message": "Launching new browser" });
 				browser = await puppeteer.launch(env.SCRAPPER_BROWSER);
 				sessionId = browser.sessionId();
 			} catch (e: any) {
-				console.log({ "Message": "Failed to launch browser", "Error": e.message });
+				console.log({ "message": "Failed to launch browser", "Error": e.message });
 				console.error(e);
-				return new Response("Failed to launch browser", { status: 500 });
+				return Response.json({"message": "Failed to launch browser", status: "failed"}, { status: 500 });
 			}
 		}
 
-		console.log({ "Message": "Loading page", "URL": targetUrlString });
+		console.log({ "message": "Loading page", "URL": targetUrlString });
 
 		// Create a new page and navigate to the target URL
 		const page = await browser.newPage();
@@ -148,12 +162,12 @@ export default {
 
 		// Check if the page loaded successfully
 		if (response?.status() !== 200) {
-			console.log({ "Message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
-			return new Response("Failed to load page", { status: response?.status() || 500 });
+			console.log({ "message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
+			return Response.json({"message": "Failed to load page", "status": "failed"}, { status: response?.status() || 500 });
 		}
 
 		// Wait for the network to be idle for some website loading information with XHR requests
-		console.log({ "Message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
+		console.log({ "message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
 
 		await page.waitForNetworkIdle({ 
 			idleTime: awaitNetworkIdle, 
@@ -170,7 +184,7 @@ export default {
 		try {
 			const r2Response = await env.RAW_HTML_BUCKET.put(r2Key, html);
 			console.log({
-				"Message": "Saved HTML to R2",
+				"message": "Saved HTML to R2",
 				"TargetUrl": targetUrlString,
 				"Size": html.length,
 				"R2Key": r2Key,
@@ -178,9 +192,9 @@ export default {
 				"R2SaveResult": r2Response?.uploaded,
 			});
 		} catch (e: any) {
-			console.log({ "Message": "Failed to save HTML to R2", "Error": e.message });
+			console.log({ "message": "Failed to save HTML to R2", "Error": e.message });
 			console.error(e);
-			return new Response("Failed to save HTML", { status: 500 });
+			return Response.json({"message": "Failed to save HTML", "status": "failed"}, { status: 500 });
 		}
 
 		// Save the page metadata to D1 using UPSERT
@@ -190,22 +204,24 @@ export default {
 				VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 				ON CONFLICT(url) DO UPDATE SET 
 					r2_path = excluded.r2_path,
+					lang = excluded.lang,
 					page_crawled_at = CURRENT_TIMESTAMP
 			`)
 				.bind(targetUrlString, r2Key, lang)
 				.run();
+
 			console.log({
-				"Message": "Saved page metadata to D1",
+				"message": "Saved page metadata to D1",
 				"TargetUrl": targetUrlString,
 				"D1SaveResult": d1Response?.success,
 			});
 		} catch (e: any) {
-			console.log({ "Message": "Failed to save page metadata to D1", "Error": e.message });
+			console.log({ "message": "Failed to save page metadata to D1", "Error": e.message });
 			console.error(e);
-			return new Response("Failed to save page metadata", { status: 500 });
+			return Response.json({"message": "Failed to save page metadata", "status": "failed"}, { status: 500 })
 		}
 		
 		// Return a success response
-		return new Response(`Scrapped: ${title} - ${targetUrlString}`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+		return Response.json({ "message": "Page scrapped successfully.", "status": "success", "TargetUrl": targetUrlString, "lang": lang, "PageTitle": title }, { status: 200 });
 	},
 } satisfies ExportedHandler<Env>;
