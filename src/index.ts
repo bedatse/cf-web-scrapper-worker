@@ -153,32 +153,39 @@ export default {
 				return Response.json({"message": "Failed to launch browser", status: "failed"}, { status: 500 });
 			}
 		}
+		let html: string;
+		let title: string;
 
-		console.log({ "message": "Loading page", "URL": targetUrlString });
+		try {
+			console.log({ "message": "Loading page", "URL": targetUrlString });
+			// Create a new page and navigate to the target URL
+			const page = await browser.newPage();
+			const response = await page.goto(targetUrlString);
 
-		// Create a new page and navigate to the target URL
-		const page = await browser.newPage();
-		const response = await page.goto(targetUrlString);
+			// Check if the page loaded successfully
+			if (response?.status() !== 200) {
+				console.log({ "message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
+				return Response.json({"message": "Failed to load page", "status": "failed"}, { status: response?.status() || 500 });
+			}
 
-		// Check if the page loaded successfully
-		if (response?.status() !== 200) {
-			console.log({ "message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
-			return Response.json({"message": "Failed to load page", "status": "failed"}, { status: response?.status() || 500 });
+			// Wait for the network to be idle for some website loading information with XHR requests
+			console.log({ "message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
+
+			await page.waitForNetworkIdle({ 
+				idleTime: awaitNetworkIdle, 
+				timeout: DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT 
+			});
+
+			html = await page.content();
+			title = await page.title();
+		} catch (e: any) {
+			console.log({ "message": "Failed to get page content", "Error": e.message });
+			console.error(e);
+			return Response.json({"message": "Failed to get page content", "status": "failed"}, { status: 500 });
+		} finally {
+			// Disconnect from the browser
+			await browser.disconnect()
 		}
-
-		// Wait for the network to be idle for some website loading information with XHR requests
-		console.log({ "message": "Waiting for network idle", "AwaitNetworkIdle": awaitNetworkIdle });
-
-		await page.waitForNetworkIdle({ 
-			idleTime: awaitNetworkIdle, 
-			timeout: DEFAULT_AWAIT_NETWORK_IDLE_TIMEOUT 
-		});
-
-		const html = await page.content();
-		const title = await page.title();
-
-		// Disconnect from the browser
-		await browser.disconnect()
 
 		// Save the HTML to R2
 		try {
