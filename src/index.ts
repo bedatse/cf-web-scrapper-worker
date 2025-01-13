@@ -107,8 +107,6 @@ export default {
 		}
 
 		// Get the URL and await network idle time from the request
-
-		const url = new URL(request.url);
 		const body: RequestBody = await request.json();
 		const reqUrl = body?.url;
 		const awaitNetworkIdle = body?.idle || DEFAULT_AWAIT_NETWORK_IDLE;
@@ -164,8 +162,9 @@ export default {
 
 			// Check if the page loaded successfully
 			if (response?.status() !== 200) {
+				// TODO: If the status is 403 forbidden, put the request to local scrapper queue
 				console.log({ "message": "Failed to load page", "URL": targetUrlString, "Status": response?.status() });
-				return Response.json({"message": "Failed to load page", "status": "failed"}, { status: response?.status() || 500 });
+				return Response.json({"message": "Failed to load page", "status": "failed", "httpStatus": response?.status(), "responseText": response?.text() }, { status: response?.status() || 500 });
 			}
 
 			// Wait for the network to be idle for some website loading information with XHR requests
@@ -181,7 +180,7 @@ export default {
 		} catch (e: any) {
 			console.log({ "message": "Failed to get page content", "Error": e.message });
 			console.error(e);
-			return Response.json({"message": "Failed to get page content", "status": "failed"}, { status: 500 });
+			return Response.json({"message": "Failed to get page content", "status": "failed", "error": e.message}, { status: 500 });
 		} finally {
 			// Disconnect from the browser
 			await browser.disconnect()
