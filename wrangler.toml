@@ -12,9 +12,9 @@ d1_databases = [
 	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata-local", database_id = "4bf05ffe-6461-499b-8e64-a7364d076ab4", preview_database_id = "4bf05ffe-6461-499b-8e64-a7364d076ab4"}
 ]
 r2_buckets = [
-	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-local", preview_bucket_name = "web-rag-composer-raw-html-local" }
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-local", preview_bucket_name = "web-rag-composer-raw-html-local" },
+	{ binding = "SCREENSHOT_BUCKET", bucket_name = "web-rag-composer-screenshot-local", preview_bucket_name = "web-rag-composer-screenshot-local" }
 ]
-
 
 [env.dev]
 browser = { binding = "SCRAPPER_BROWSER" }
@@ -23,7 +23,16 @@ d1_databases = [
 	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata-dev", database_id = "56f92781-5084-4333-a331-9cfdfaa0710f" }
 ]
 r2_buckets = [
-	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-dev" }
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html-dev" },
+	{ binding = "SCREENSHOT_BUCKET", bucket_name = "web-rag-composer-screenshot-dev" }
+]
+
+queues.producers = [
+	{ binding = "SCRAPPER_QUEUE", queue = "scrapper-dev" }
+]
+
+queues.consumers = [
+	{ queue = "scrapper-dev", max_concurrency = 2, max_batch_size = 10, max_batch_timeout = 10, dead_letter_queue = "scrapper-dlq-dev" }
 ]
 
 [env.prod]
@@ -33,5 +42,14 @@ d1_databases = [
 	{ binding = "PAGE_METADATA", database_name = "web-rag-composer-page-metadata", database_id = "9deb74a3-287b-4d8b-a020-6662cfbd9a01" }
 ]
 r2_buckets = [
-	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html" }
+	{ binding = "RAW_HTML_BUCKET", bucket_name = "web-rag-composer-raw-html" },
+	{ binding = "SCREENSHOT_BUCKET", bucket_name = "web-rag-composer-screenshot" }
+]
+
+queues.producers = [
+	{ binding = "SCRAPPER_QUEUE", queue = "scrapper-prod" }
+]
+
+queues.consumers = [
+	{ queue = "scrapper-prod", max_concurrency = 2, max_batch_size = 10, max_batch_timeout = 10, dead_letter_queue = "scrapper-dlq-prod" }
 ]
